@@ -18,10 +18,11 @@
 </head>
 <body>
   <header class="w-full py-4 px-4">
-    <h1 class="text-2xl md:text-3xl font-bold text-center">Manpower Warehouse</h1>
+    <h1 class="text-2xl md:text-3xl font-bold text-center">Manpower Warehouse1</h1>
     
     <!-- Controls Panel (ซ่อนเริ่มต้น) -->
     <div id="controlsPanel" class="flex gap-2 justify-center mt-3 flex-wrap hidden">
+      <button id="openAddBtn" class="btn !bg-emerald-500/90 hover:!bg-emerald-400 text-black border border-emerald-300">เพิ่มพนักงาน</button>
       <button id="fitBtn" class="btn">ปรับพอดีจอ</button>
       <button id="scrollBtn" class="btn">โหมดเลื่อน (Natural size)</button>
       <button id="collapseAllBtn" class="btn">ย่อทั้งหมด</button>
@@ -29,9 +30,6 @@
       <button id="resetBtn" class="btn">รีเซ็ตซูม</button>
       <button id="exportBtn" class="btn">บันทึก SVG</button>
       <button id="togglePositionsBtn" class="btn">ซ่อนตำแหน่ง</button>
-    </div>
-    <div class="flex justify-center mt-2">
-      <button id="openAddBtn" class="btn !bg-emerald-500/90 hover:!bg-emerald-400 text-black border border-emerald-300">เพิ่มพนักงาน</button>
     </div>
   </header>
 
@@ -509,9 +507,26 @@ Operator	FILM	นายกิติภูมิ จีนจันทึก
       .style('opacity', 0)
       .on('click', function(event, d){
         if (d.sharedGroupKey){
-          const before = sharedGroups.get(d.sharedGroupKey)?.activeNode;
-          if (before && before!==d){ switchSharedTo(d); }
-          if (d._children){ d.children = d._children; d._children=null; }
+          const grp = sharedGroups.get(d.sharedGroupKey);
+          const before = grp?.activeNode;
+          
+          if (before && before === d) {
+            // คลิกที่ active node เดิม -> ซ่อนลูกทีม
+            if (d.children) {
+              d._children = d.children;
+              d.children = null;
+            } else if (d._children) {
+              d.children = d._children;
+              d._children = null;
+            }
+          } else if (before && before !== d) {
+            // คลิกที่ node อื่น -> เปลี่ยนไปแสดงที่ node นี้
+            switchSharedTo(d);
+            if (d._children) {
+              d.children = d._children;
+              d._children = null;
+            }
+          }
           update(d);
           return;
         }
