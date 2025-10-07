@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manpower Warehouse</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body{font-family:'Sarabun',system-ui,Segoe UI,Roboto,Arial;background:#0b1020;color:#e6ecff}
+    .panel{background:#101631;border:1px solid rgba(255,255,255,.08);border-radius:14px}
+    .btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:.5rem .9rem;border-radius:10px}
+    .link{stroke:rgba(190,205,255,.5);stroke-width:1.4px;fill:none}
+    .link.entering{stroke:rgba(255,200,87,.95)} /* เน้นลิงก์ที่เพิ่งกาง */
+    .node text{font-size:.9rem}
+    .node circle{transition:fill .2s ease}
+  </style>
+</head>
+<body>
+  <header class="w-full py-4 px-4">
+    <h1 class="text-2xl md:text-3xl font-bold text-center">Manpower Warehouse</h1>
+    
+    <!-- Controls Panel (ซ่อนเริ่มต้น) -->
+    <div id="controlsPanel" class="flex gap-2 justify-center mt-3 flex-wrap hidden">
+      <button id="fitBtn" class="btn">ปรับพอดีจอ</button>
+      <button id="scrollBtn" class="btn">โหมดเลื่อน (Natural size)</button>
+      <button id="collapseAllBtn" class="btn">ย่อทั้งหมด</button>
+      <button id="expandAllBtn" class="btn">ขยายทั้งหมด</button>
+      <button id="resetBtn" class="btn">รีเซ็ตซูม</button>
+      <button id="exportBtn" class="btn">บันทึก SVG</button>
+      <button id="togglePositionsBtn" class="btn">ซ่อนตำแหน่ง</button>
+    </div>
+    <div class="flex justify-center mt-2">
+      <button id="openAddBtn" class="btn !bg-emerald-500/90 hover:!bg-emerald-400 text-black border border-emerald-300">เพิ่มพนักงาน</button>
+    </div>
+  </header>
+
+  <!-- Modal: เพิ่มพนักงาน -->
+  <div id="addModal" class="fixed inset-0 hidden items-center justify-center z-50">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="relative bg-[#0f1530] text-white border border-white/10 rounded-xl shadow-2xl w-[min(96vw,560px)] p-4">
+      <h2 class="text-xl font-semibold mb-3">เพิ่มพนักงาน</h2>
+      <form id="addForm" class="grid grid-cols-1 gap-3">
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ส่วนงาน</span>
+          <select id="deptSelect" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2"></select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ตำแหน่ง</span>
+          <select id="posSelect" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2"></select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ชื่อ–นามสกุล</span>
+          <input id="nameInput" type="text" placeholder="เช่น นายสมชาย ใจดี" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2" />
+        </label>
+        <div id="addError" class="text-rose-400 text-sm hidden"></div>
+        <div class="flex items-center gap-2 justify-end pt-2">
+          <button type="button" id="addCancel" class="btn">ยกเลิก</button>
+          <button type="submit" class="btn !bg-emerald-500/90 hover:!bg-emerald-400 text-black border border-emerald-300">บันทึก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: แก้ไข/ย้าย/ลาออก -->
+  <div id="editModal" class="fixed inset-0 hidden items-center justify-center z-50">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="relative bg-[#0f1530] text-white border border-white/10 rounded-xl shadow-2xl w-[min(96vw,560px)] p-4">
+      <h2 class="text-xl font-semibold mb-3">แก้ไขข้อมูลพนักงาน</h2>
+      <form id="editForm" class="grid grid-cols-1 gap-3">
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ส่วนงาน</span>
+          <select id="editDeptSelect" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2"></select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ตำแหน่ง</span>
+          <select id="editPosSelect" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2"></select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ชื่อ–นามสกุล</span>
+          <input id="editNameInput" type="text" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2" />
+        </label>
+        <div id="editError" class="text-rose-400 text-sm hidden"></div>
+        <div class="flex items-center gap-2 justify-between pt-2">
+          <button type="button" id="editDelete" class="btn !bg-rose-500/90 hover:!bg-rose-400 text-black border border-rose-300">ลาออก/ลบ</button>
+          <div class="flex items-center gap-2">
+            <button type="button" id="editCancel" class="btn">ยกเลิก</button>
+            <button type="submit" class="btn !bg-emerald-500/90 hover:!bg-emerald-400 text-black border border-emerald-300">บันทึก</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Floating Toggle Button -->
+  <button id="controlsToggle" title="แสดง/ซ่อน เมนูควบคุม (กด C)" aria-label="Toggle Controls"
+          class="fixed bottom-4 right-4 z-50 px-3 py-2 rounded-full bg-amber-500/90 hover:bg-amber-400 text-black shadow-lg border border-yellow-300">
+    เมนู
+  </button>
+
+  <main class="w-full px-2 sm:px-4 pb-2">
+    <div id="chart" class="panel w-full overflow-auto"></div>
+  </main>
+
+<script>
+(function(){
+  // --- Data: (Position, Dept, Name) ---
+  const rows = `
+Senior Warehouse Manager	Warehouse Manager	นายกฤษฎา เกิดเสม
+Asistant Warehouse Manager	Asistant Warehouse Manager	นางพุสดี ศรีวัฒนา
+Warehouse Supervisor	A&I	นางสาวดวงใจ ลุนวงค์
+Warehouse Officer	A&I	นางสาวฐิติรัตน์ อุ้ยหา
+Operator	A&I	นางสาวภานุชนาถ สุขสีดา
+Warehouse Supervisor	MH	นางสาวศิรินภา จิณศิริ
+Sr.Warehouse Officer	MH	นายสุรสิทธิ์ นุชจันทร์
+Sr.Warehouse Officer	MH	นางสาวศศิวิมล อารีย์จิต
+Warehouse Officer	MH	นายสมชาย สุดสวาท
+Sr.Forklift Driver	MH	นายเพชรรัตน์ วาดเขียน
+Sr.Forklift Driver	MH	นายขวัญ ใหญ่ยอด
+Sr.Forklift Driver	MH	นายเศกสรรค์ แก้วมรกฏ
+Sr.Forklift Driver	MH	นายนพนันท์ ยันอินทร์
+Technical Service Forklift	MH	นายธรรณธร ทองนรินทร์
+Forklift Driver	MH	นายสถาวร ช้างสาร
+Forklift Driver	MH	นายชญานนท์ คำทองเที่ยง
+Forklift Driver	MH	นายลิขิต อุ่นดวง
+Forklift Driver	MH	นายเด่น อุดศรี
+Forklift Driver	MH	นายทเนศ เมฆหมอก
+Forklift Driver	MH	นายสมชาย จูมวันนา
+Forklift Driver	MH	นายณัฐวุฒิ อินต๊ะ
+Forklift Driver	MH	นายวัฒนา พุ่มแฟง
+Forklift Driver	MH	นายสรศักดิ์ เมฆหมอก
+Forklift Driver	MH	นายธีรวัฒน์ สิงห์โตน้อย
+Forklift Driver	MH	นายประกอบ นรินทร์นอก
+Forklift Driver	MH	นายศรายุธร ซื่อสัตย์
+Forklift Driver	MH	นายณัฐพงศ์ เจริญลาภ
+Forklift Driver	MH	นายเลิศฤทธิ์ ศรีเรืองพันธ์
+Forklift Driver	MH	นายสุทธิพงศ์ ชูนาคา
+Forklift Driver	MH	นายณัฐวุฒิ ภูสังข์
+Forklift Driver	MH	นายจตุพร พูลศิลป์
+Forklift Driver	MH	นายนิคม คุ้มเณร
+Forklift Driver	MH	นายอนนท์ สามีวัง
+Forklift Driver	MH	นายนัฐพล เมืองสำราญ
+Forklift Driver	MH	นายเอกพล สอนดอก
+Forklift Driver	MH	นายปิยะเดช มณีโชติ
+Forklift Driver	MH	นายณัฐพล ศิริจันโท
+Forklift Driver	MH	นายจารุวัฒน์ ศรีโชติ
+Forklift Driver	MH	นายนนทนันท์ พุฒิโชติ
+Forklift Driver	MH	นายดนัย ปริโยทัย
+Forklift Driver	MH	นายบันลือศักดิ์ ลีทาสี
+Forklift Driver	MH	นายศุภชัย ตะโย
+Forklift Driver	MH	นายนพรัตน์ แสงแก้ว
+Warehouse Supervisor	SSRM	นายนลธวัช เนาว์กระโทก
+Warehouse Officer	SSRM	นางสาวนัดดา สิทธิปัญญา
+Warehouse Officer	SSRM	นางสาวปาวรีย์ วิลา
+Warehouse Officer	SSRM	นางสาวกานติมา มะโน
+Sr.Inspector	SSRM	นายเนาะดู โศจิอรุณ
+Sr.Inspector	SSRM	นายปิยะ คำดี
+Inspector	SSRM	นางสาวสรารัตน์ ยินยิ้ม
+Inspector	SSRM	นายนวพล มาโรจน์วานิช
+Operator	SSRM	นางสาวกัญญาวีร์ โพธิโชติ
+Operator	SSRM	นายอภิชาติ ลายสาคร
+Operator	SSRM	นายอุทัย เจริญอายุวัฒ
+Operator	SSRM	นางสาวกมลลักษณ์ อินทร์พิมพ์
+Operator	SSRM	นายเฉลิมพล เริ่มรัตน์
+Operator	SSRM	นายอนันต์ พูลสวัสดิ์
+Operator	SSRM	นายธีรภัทร์ นาคขำพันธ์
+Warehouse Supervisor	COIL	นายนลธวัช เนาว์กระโทก
+Warehouse Officer	COIL	นางสายฝน พิศนอก
+Warehouse Officer	COIL	นายอภิชาติ ศรีเสริม
+Warehouse Officer	COIL	นายอิทธิพล ศรีเพชร
+Sr.Inspector	COIL	นายจรัญ ภูคัง
+Sr.Inspector	COIL	นายสมโภชน์ รอดหลำ
+Inspector	COIL	นายโกมินทร์ เกยแก้ว
+Inspector	COIL	นายอุเทน แย้มแตงอ่อน
+Inspector	COIL	นายอุมากร งอยหล้า
+Inspector	COIL	นายจักรกฤษ บุญไส
+Operator	COIL	นายอุบล แสงกล้า
+Operator	COIL	นายนัฐพงศ์ เขียวเหลือง
+Operator	COIL	นายปัญจพงศ์ ธรรมาอ่อน
+Operator	COIL	นายกิตติพล ห่วงประชากิจ
+Operator	COIL	นายพเนตร ตั้งศรีจันทร์
+Operator	COIL	นายคฑาวุฒิ บุญบรรลุ
+Operator	COIL	นายดนุพร เขียวไพรี
+Operator	COIL	นายอัครพล เจริญจิตต์
+Operator	COIL	นายอนุชา หีบแก้ว
+Warehouse Supervisor	FILM	นายนลธวัช เนาว์กระโทก
+Sr.Warehouse Officer	FILM	นายผ่อง คลอนโพธิ์
+Warehouse Officer	FILM	นายกฤษดา ศรีสุวรรณ์
+Warehouse Officer	FILM	นางสาวเพชรัตน์ รักษา
+Warehouse Officer	FILM	นายอานุภาพ ขยายศรี
+Warehouse Officer	FILM	นายกิตติพงศ์ นาคสัมฤทธิ์
+Sr.Inspector	FILM	นายพินิจ แสงสว่าง
+Inspector	FILM	นายวีระชัย เช่นขาว
+Inspector	FILM	นายสิรภพ ทองโฉม
+Inspector	FILM	นายฉัตรชัย แป้นบางนา
+Inspector	FILM	นายสมลักษณ์ ศรีสอาด
+Inspector	FILM	นายนรินทร์ จุงอินทะ
+Inspector	FILM	นายปรีชา เขียวสุย
+Inspector	FILM	นายสุรพงษ์ นายี่
+Operator	FILM	นายนันภัทร ชมศิลป์
+Operator	FILM	นายมงคลเทพ ทองสุภาพ
+Operator	FILM	นายอมรเทพ หนูประโคน
+Operator	FILM	นายวรากร ใจแสน
+Operator	FILM	นายธนพล ตรีถูกแบบ
+Operator	FILM	นายนิรันร์ กิจเอื้อ
+Operator	FILM	นายภูวนัย เสาวรส
+Operator	FILM	นายวิรัตน์ ธารสุขวิไล
+Operator	FILM	นายกิตติศักดิ์ แร่ทอง
+Operator	FILM	นายณัฐวัตร ตรวจมรรคา
+Operator	FILM	นายสิทธิชัย อุโลม
+Operator	FILM	นายจิรายุ รุ่งเรืองศรี
+Operator	FILM	นายอนุชา พรรณสูตร
+Operator	FILM	นายคฑาวุุธ เสนาพุฒ
+Operator	FILM	นายอุดมศักดิ์ สายันต์
+Operator	FILM	นายกิติภูมิ จีนจันทึก
+`;
+
+  // ✅ FIX: แก้ regex แยกบรรทัดให้ถูก และตั้งค่าตัวแปรใช้งานระยะเวลาเป็น DURATION (ไม่ใช้ DU)
+  let roster = rows.trim().split(/\r?\n/).map((l,i)=>{
+    const [position,dept,name] = l.split('\t');
+    return {id:i+1, position:position.trim(), dept:dept.trim(), name:name.trim()};
+  });
+  let nextId = roster.reduce((m,r)=> Math.max(m, r.id||0), 0) + 1;
+  const head = roster.find(r=>/Senior Warehouse Manager/i.test(r.position));
+  const assistant = roster.find(r=>/Asistant Warehouse Manager/i.test(r.position));
+
+  // Utility to get persons by dept+position
+  const byDeptPos = (dept, positions)=> roster.filter(r=> r.dept===dept && positions.includes(r.position));
+
+  // ---- Helper: enforce invariant for MH (Forklift Driver must be child of Sr.Forklift Driver) ----
+  function fixMHForkPlacement(rootOfMH){
+    function walk(node){
+      (node.children||[]).forEach(ch=>{
+        if (ch.dept==='MH' && ch.position==='Warehouse Officer'){
+          const wNode = ch;
+          let srNodes = (wNode.children||[]).filter(x=> x.position==='Sr.Forklift Driver');
+          if (srNodes.length===0){
+            const placeholder = { name:'(จัดโครงสร้าง)', position:'Sr.Forklift Driver', dept:'MH', children:[] };
+            wNode.children = (wNode.children||[]).slice();
+            wNode.children.push(placeholder);
+            srNodes = [placeholder];
+          }
+          const remain = [];
+          (wNode.children||[]).forEach((c)=>{
+            if (c.position==='Forklift Driver'){
+              const parent = srNodes[ (c.__assignIndex||0) % srNodes.length ];
+              parent.children = (parent.children||[]).slice();
+              parent.children.push(c);
+            } else {
+              remain.push(c);
+            }
+          });
+          wNode.children = remain;
+        }
+        walk(ch);
+      });
+    }
+    walk(rootOfMH);
+  }
+
+  function buildHierarchy(){
+    const root = { id: head.id, name: head.name, position: head.position, dept: head.dept, children: [] };
+    const asst = { id: assistant.id, name: assistant.name, position: assistant.position, dept: assistant.dept, children: [] };
+    root.children.push(asst);
+
+    const supervisors = roster.filter(r=> r.position==='Warehouse Supervisor');
+    supervisors.forEach(sup=>{
+      const supNode = { id: sup.id, name: sup.name, position: `${sup.position} (${sup.dept})`, dept: sup.dept, children: [] };
+      asst.children.push(supNode);
+
+      if (sup.dept==='MH'){
+        // MH: Supervisor -> Sr.Warehouse Officer -> Warehouse Officer -> Sr.Forklift Driver -> Forklift Driver
+        const srWHs   = byDeptPos('MH', ['Sr.Warehouse Officer']);
+        const whs     = byDeptPos('MH', ['Warehouse Officer']);
+        const srForks = byDeptPos('MH', ['Sr.Forklift Driver']);
+        const techs   = byDeptPos('MH', ['Technical Service Forklift']);
+        const forks   = byDeptPos('MH', ['Forklift Driver']);
+
+        srWHs.forEach(s => {
+          const sNode = { id:s.id, name: s.name, position: s.position, dept: 'MH', children: [] };
+          supNode.children.push(sNode);
+
+          whs.forEach(w => {
+            const wNode = { id:w.id, name: w.name, position: w.position, dept: 'MH', children: [] };
+            sNode.children.push(wNode);
+
+            const srForkNodes = [];
+            srForks.forEach((sf) => {
+              const sfNode = { id:sf.id, name: sf.name, position: sf.position, dept: 'MH', children: [] };
+              wNode.children.push(sfNode);
+              srForkNodes.push(sfNode);
+            });
+
+            if (srForkNodes.length > 0){
+              forks.forEach((f, i) => {
+                const parent = srForkNodes[i % srForkNodes.length];
+                parent.children.push({ id:f.id, name: f.name, position: f.position, dept: 'MH', children: [] });
+              });
+            } else {
+              forks.forEach((f, i) => {
+                const n = { id:f.id, name: f.name, position: f.position, dept: 'MH', children: [], __assignIndex:i };
+                wNode.children.push(n);
+              });
+            }
+            techs.forEach(t => { wNode.children.push({ id:t.id, name: t.name, position: t.position, dept: 'MH', children: [] }); });
+          });
+        });
+
+        fixMHForkPlacement(supNode);
+      } else {
+        chainThrough([supNode], sup.dept, [
+          ['Sr.Warehouse Officer'],
+          ['Warehouse Officer'],
+          ['Sr.Inspector'],
+          ['Inspector'],
+          ['Operator']
+        ]);
+      }
+    });
+    return root;
+  }
+
+  function chainThrough(parentNodes, dept, levels){
+    if (levels.length===0) return;
+    const [currentPositions, ...rest] = levels;
+    const people = byDeptPos(dept, currentPositions);
+    if (people.length===0){
+      return chainThrough(parentNodes, dept, rest);
+    }
+    const newParents = [];
+    parentNodes.forEach(p => {
+      people.forEach(person => {
+        const node = { id:person.id, name: person.name, position: person.position, dept, children: [] };
+        p.children.push(node);
+        newParents.push(node);
+      });
+    });
+    return chainThrough(newParents, dept, rest);
+  }
+
+  // --------- D3 render with zoom/pan + collapsible nodes + smart spacing/wrap + ENTER ANIMATION + SHARED-GROUP SWITCH ---------
+  const container = document.getElementById('chart');
+  const headerEl = document.querySelector('header');
+  function setChartHeight(){
+    const rectH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+    const h = window.innerHeight - rectH - 24; // เผื่อระยะขอบเล็กน้อย
+    container.style.height = Math.max(480, h) + 'px';
+  }
+  setChartHeight();
+  const svg = d3.select(container).append('svg').attr('width','100%').attr('height','100%');
+  const g = svg.append('g');
+  const linkG = g.append('g');
+  const nodeG = g.append('g');
+  const defs = svg.append('defs');
+  const rootGlow = defs.append('filter').attr('id','rootGlow')
+    .attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+  rootGlow.append('feDropShadow')
+    .attr('dx',0).attr('dy',0).attr('stdDeviation',3.2)
+    .attr('flood-color','#ffb703').attr('flood-opacity',0.9);
+  const zoom = d3.zoom().scaleExtent([0.3,3]).on('zoom', (ev)=> g.attr('transform', ev.transform));
+  svg.call(zoom);
+  let mode = 'fit';
+
+  const DURATION = 700; // ms – ความเร็วการวาดเส้น/โหนด
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  function textWidth(txt, bold=false){ ctx.font = `${bold? '600': '400'} 14px Sarabun, sans-serif`; return ctx.measureText(txt || '').width; }
+
+  function wrap(selection, width, opts){
+    const cfg = Object.assign({line:1.2, firstDy:'0em', direction:'down'}, opts||{});
+    selection.each(function(){
+      const text = d3.select(this);
+      const raw = text.text();
+      const isThaiLike = /[\u0E00-\u0E7F]/.test(raw);
+      const units = raw.split(isThaiLike? '' : /\s+/).filter(Boolean);
+      text.text(null);
+      let line=[], lineNumber=0; let tspan = text.append('tspan').attr('x',0).attr('dy', cfg.firstDy);
+      units.forEach((u)=>{
+        line.push(u);
+        tspan.text(line.join(isThaiLike? '' : ' '));
+        if (textWidth(tspan.text()) > width && line.length>1){
+          line.pop(); tspan.text(line.join(isThaiLike? '' : ' '));
+          line = [u]; const dy = (cfg.direction==='up'? -cfg.line : cfg.line) + 'em';
+          tspan = text.append('tspan').attr('x',0).attr('dy', dy).text(u); lineNumber++;
+        }
+      });
+      text.node().__lines = lineNumber+1;
+    });
+  }
+
+  let treeRoot; // global for update
+  const dx = 120, dy = 180; // base spacings
+  function nodeSep(a,b){
+    const wa = a.data.w || 100, wb = b.data.w || 100; const base = (a.parent===b.parent? 1.2 : 1.6); return base + (wa + wb) / (dx * 1.6);
+  }
+  const layout = d3.tree().nodeSize([dx, dy]).separation(nodeSep);
+  const linkGen = d3.linkVertical().x(d=>d.x).y(d=>d.y);
+
+  let showPositions = true;
+  function applyPositionVisibility(){ nodeG.selectAll('text.pos-text').attr('display', showPositions ? null : 'none'); }
+  window._setShowPositions = (v)=>{ showPositions = !!v; applyPositionVisibility(); };
+
+  function collapse(d){ if (d.children){ d._children = d.children; d._children.forEach(collapse); d.children = null; } }
+  function expand(d){ if (d._children){ d.children = d._children; d._children.forEach(expand); d._children = null; } }
+
+  // ===== Shared groups (siblings with same position+dept share one team; switch on click) =====
+  const sharedGroups = new Map(); // key -> {activeNode}
+  function parentPathKey(n){
+    const parts=[]; let p=n.parent; while(p){ parts.push(p.data.name+':'+(p.data.position||'')); p=p.parent; }
+    return parts.reverse().join('/');
+  }
+  function groupKeyFor(parent, child){ return parentPathKey(parent)+'::'+(child.data.position||'')+'::'+(child.data.dept||''); }
+
+  function initSharedGroups(root){
+    (function walk(n){
+      const kids = (n.children||n._children||[]);
+      if (kids.length>0){
+        const byKey = new Map();
+        kids.forEach(k => {
+          const key = groupKeyFor(n, k);
+          if(!byKey.has(key)) byKey.set(key, []);
+          byKey.get(key).push(k);
+        });
+        byKey.forEach((members, key)=>{
+          if (members.length>1){
+            // pick carrier: first one that already has team (children/_children), else first
+            let carrier = members.find(m => (m.children&&m.children.length) || (m._children&&m._children.length)) || members[0];
+            members.forEach(m => { m.sharedGroupKey = key; });
+            // remove teams from non-carriers
+            members.forEach(m=>{
+              if (m!==carrier){ m.children=null; m._children=null; }
+            });
+            sharedGroups.set(key, {activeNode: carrier});
+          }
+        });
+      }
+      (n.children||[]).forEach(walk);
+      (n._children||[]).forEach(walk);
+    })(root);
+  }
+
+  function reparentAll(arr, newParent){
+    (arr||[]).forEach(ch=>{ ch.parent = newParent; reparentAll(ch.children, ch); reparentAll(ch._children, ch); });
+  }
+
+  function switchSharedTo(target){
+    const key = target.sharedGroupKey; if(!key) return;
+    const grp = sharedGroups.get(key); if(!grp) return;
+    if (grp.activeNode===target) return; // already active
+    const from = grp.activeNode;
+    // move both visible and hidden teams
+    const payloadChildren = from.children; const payloadHidden = from._children;
+    from.children = null; from._children = null;
+    if (payloadChildren){ reparentAll(payloadChildren, target); }
+    if (payloadHidden){ reparentAll(payloadHidden, target); }
+    // attach to target (preserve current expand state from previous owner)
+    target.children = payloadChildren || null;
+    target._children = payloadHidden || null;
+    grp.activeNode = target;
+  }
+  // Expose for tests
+  window._switchSharedTo = (node)=>{ switchSharedTo(node); update(node); };
+
+  function render(){
+    treeRoot = d3.hierarchy(buildHierarchy());
+    treeRoot.x0 = 0; treeRoot.y0 = 0;
+    treeRoot.each(d=>{ d.data.w = Math.max(60, textWidth(d.data.position, true), textWidth(d.data.name, false)); d.x0 = d.x || 0; d.y0 = d.y || 0; });
+    layout(treeRoot);
+    if (treeRoot.children) treeRoot.children.forEach(collapse);
+    initSharedGroups(treeRoot); // <- จัด shared groups หลัง collapse แล้ว
+    update(treeRoot);
+  }
+
+  function update(source){
+    treeRoot.each(d=>{ d.data.w = Math.max(60, textWidth(d.data.position, true), textWidth(d.data.name, false)); });
+    layout(treeRoot);
+
+    const nodes = treeRoot.descendants();
+    const links = treeRoot.links();
+
+    // --- Links ---
+    const linkSel = linkG.selectAll('path.link').data(links, d=> d.target.data.name + '->' + d.source.data.name);
+
+    const linkEnter = linkSel.enter().append('path')
+      .attr('class','link entering')
+      .attr('d', d=> linkGen({source:{x:d.source.x,y:d.source.y}, target:{x:d.target.x,y:d.target.y}}))
+      .each(function(){
+        try{ const len = this.getTotalLength(); d3.select(this).attr('stroke-dasharray', `${len} ${len}`).attr('stroke-dashoffset', len)
+          .transition().duration(DURATION).attr('stroke-dashoffset', 0)
+          .on('end', ()=> d3.select(this).classed('entering', false).attr('stroke-dasharray', null).attr('stroke-dashoffset', null)); }
+        catch(e){ d3.select(this).style('opacity',0).transition().duration(DURATION).style('opacity',1); }
+      });
+
+    linkSel.transition().duration(DURATION)
+      .attr('d', d=> linkGen({source:{x:d.source.x,y:d.source.y}, target:{x:d.target.x,y:d.target.y}}));
+
+    linkSel.exit().transition().duration(DURATION)
+      .attr('d', d=>{ const o = {x: source ? source.x : d.source.x, y: source ? source.y : d.source.y}; return linkGen({source:o, target:o}); })
+      .remove();
+
+    // --- Nodes ---
+    const nodeSel = nodeG.selectAll('g.node').data(nodes, d=> d.data.name+':'+(d.data.position||''));
+
+    const nodeEnter = nodeSel.enter().append('g')
+      .attr('class','node')
+      .attr('transform', d=> `translate(${source ? source.x0 : d.x},${source ? source.y0 : d.y})`)
+      .style('cursor','pointer')
+      .style('opacity', 0)
+      .on('click', function(event, d){
+        if (d.sharedGroupKey){
+          const before = sharedGroups.get(d.sharedGroupKey)?.activeNode;
+          if (before && before!==d){ switchSharedTo(d); }
+          if (d._children){ d.children = d._children; d._children=null; }
+          update(d);
+          return;
+        }
+        if (d.children){ d._children = d.children; d.children = null; }
+        else if (d._children){ d.children = d._children; d._children = null; }
+        update(d);
+      })
+      .on('contextmenu', function(event, d){ event.preventDefault(); openEditByNode(d); });
+
+    nodeEnter.append('circle')
+      .attr('r', 7)
+      .attr('fill', d=> (d.children||d._children) ? '#6ea8fe' : '#ffc857')
+      .attr('stroke','rgba(0,0,0,.35)')
+      .attr('stroke-width', 1);
+
+    const posText = nodeEnter.append('text').attr('class','pos-text').attr('text-anchor','middle').attr('fill','#ff9800').attr('font-weight','600');
+    const nameText = nodeEnter.append('text').attr('class','name-text').attr('text-anchor','middle').attr('fill','#cfe1ff');
+
+    posText.text(d=> d.data.position || '').call(wrap, 160, {firstDy:'-1.2em', direction:'up'})
+      .clone(true).lower().attr('stroke','rgba(0,0,0,.75)').attr('stroke-width',1.2);
+    nameText.text(d=> d.data.name || '').call(wrap, 180, {firstDy:'1.4em', direction:'down'})
+      .clone(true).lower().attr('stroke','rgba(0,0,0,.5)').attr('stroke-width',.8);
+    // บังคับความชัดของข้อความ (ทั้ง root และโหนดอื่น)
+    posText.attr('fill-opacity',1).style('opacity',1);
+    nameText.attr('fill-opacity',1).style('opacity',1);
+
+    nodeEnter.transition().duration(DURATION)
+      .attr('transform', d=> `translate(${d.x},${d.y})`)
+      .style('opacity', 1);
+
+    nodeSel.merge(nodeEnter).select('circle')
+      .transition().duration(250)
+      .attr('r', 7)
+      .attr('fill', d=> (d.children||d._children) ? '#6ea8fe' : '#ffc857')
+      .attr('stroke','rgba(0,0,0,.35)')
+      .attr('stroke-width', 1);
+
+    nodeSel.merge(nodeEnter).select('text.pos-text')
+      .attr('fill', '#ff9800')
+      .attr('font-weight', '600')
+      .attr('font-size', null)
+      .attr('filter', null)
+      .attr('fill-opacity',1)
+      .style('opacity',1);
+
+    nodeSel.merge(nodeEnter).select('text.name-text')
+      .attr('fill', '#cfe1ff')
+      .attr('font-weight', null)
+      .attr('font-size', null)
+      .attr('filter', null)
+      .attr('fill-opacity',1)
+      .style('opacity',1);
+
+    nodeSel.merge(nodeEnter).style('opacity',1);
+
+    nodeSel.transition().duration(DURATION)
+      .attr('transform', d=> `translate(${d.x},${d.y})`);
+
+    nodeSel.exit().transition().duration(DURATION)
+      .style('opacity', 0)
+      .attr('transform', d=> `translate(${source ? source.x : d.x},${source ? source.y : d.y})`)
+      .remove();
+
+    nodes.forEach(d=>{ d.x0 = d.x; d.y0 = d.y; });
+
+    applyPositionVisibility();
+    applyView();
+  }
+
+  function applyView(){
+    // ใช้ bounding box ของเนื้อหา แล้ว "จัดให้อยู่กลางจอ" พร้อมกำหนดขนาดขั้นต่ำแบบ responsive
+    const pad = 80; // เผื่อขอบ
+    const bbox = g.node().getBBox();
+    const contentW = Math.max(1, bbox.width + pad*2);
+    const contentH = Math.max(1, bbox.height + pad*2);
+
+    // ขนาดขั้นต่ำคิดจากขนาดกล่องที่แสดงผล (เลี่ยงปัญหามุมล่างขวาเล็กๆ)
+    const rect = container.getBoundingClientRect();
+    const MIN_W = Math.max(420, Math.min(900, rect.width * 0.7));
+    const MIN_H = Math.max(320, Math.min(700, rect.height * 0.7));
+
+    const w = Math.max(contentW, MIN_W);
+    const h = Math.max(contentH, MIN_H);
+
+    // จัดให้ bbox ไปอยู่กึ่งกลาง viewBox
+    const extraW = w - contentW;
+    const extraH = h - contentH;
+    const vx = (bbox.x - pad) - extraW/2;
+    const vy = (bbox.y - pad) - extraH/2;
+
+    if (mode==='fit'){
+      svg.attr('viewBox', `${vx} ${vy} ${w} ${h}`).attr('width','100%').attr('height','100%');
+    } else {
+      svg.attr('viewBox', null).attr('width', w).attr('height', h);
+      svg.call(zoom.transform, d3.zoomIdentity);
+    }
+  }
+
+  // จัดให้อยู่กลางใหม่เมื่อขนาดจอเปลี่ยน
+  window.addEventListener('resize', ()=>{ setChartHeight(); if(mode==='fit') applyView(); });
+
+  // ฟังก์ชันปรับพอดีจอ (ใช้ทั้งค่าเริ่มต้นและปุ่ม)
+  function fitToScreen(){
+    mode = 'fit';
+    svg.call(zoom.transform, d3.zoomIdentity); // รีเซ็ตซูมให้คาดเดาได้
+    applyView();
+  }
+
+  // Controls (attach listeners; panel ซ่อนอยู่แต่ปุ่มก็พร้อมใช้งาน)
+  const panelEl = document.getElementById('controlsPanel');
+  const toggleEl = document.getElementById('controlsToggle');
+  function togglePanel(){ panelEl.classList.toggle('hidden'); }
+  toggleEl.addEventListener('click', togglePanel);
+  window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='c') togglePanel(); });
+
+  document.getElementById('fitBtn').addEventListener('click', ()=>{ fitToScreen(); });
+  document.getElementById('scrollBtn').addEventListener('click', ()=>{ mode='scroll'; applyView(); });
+  document.getElementById('resetBtn').addEventListener('click', ()=> svg.call(zoom.transform, d3.zoomIdentity));
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const serializer = new XMLSerializer();
+    const clone = svg.node().cloneNode(true);
+    const blob = new Blob([serializer.serializeToString(clone)], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='org-structure.svg'; a.click(); URL.revokeObjectURL(url);
+  });
+  document.getElementById('collapseAllBtn').addEventListener('click', ()=>{ if (!treeRoot) return; collapse(treeRoot); update(treeRoot); });
+  document.getElementById('expandAllBtn').addEventListener('click', ()=>{ if (!treeRoot) return; expand(treeRoot); update(treeRoot); });
+
+  const toggleBtn = document.getElementById('togglePositionsBtn');
+  toggleBtn.addEventListener('click', ()=>{ showPositions = !showPositions; toggleBtn.textContent = showPositions ? 'ซ่อนตำแหน่ง' : 'แสดงตำแหน่ง'; applyPositionVisibility(); });
+
+  // ====== Add Employee Modal ======
+  const addModal = document.getElementById('addModal');
+  const addForm  = document.getElementById('addForm');
+  const openAddBtn = document.getElementById('openAddBtn');
+  const addCancel = document.getElementById('addCancel');
+  const deptSelect = document.getElementById('deptSelect');
+  const posSelect  = document.getElementById('posSelect');
+  const nameInput  = document.getElementById('nameInput');
+  const addError   = document.getElementById('addError');
+
+  const DEPTS = ['Warehouse Manager','Asistant Warehouse Manager','A&I','MH','SSRM','COIL','FILM'];
+  const COMMON = ['Warehouse Supervisor','Sr.Warehouse Officer','Warehouse Officer','Sr.Inspector','Inspector','Operator'];
+  const POSITIONS_MAP = {
+    'Warehouse Manager': ['Senior Warehouse Manager'],
+    'Asistant Warehouse Manager': ['Asistant Warehouse Manager'],
+    'A&I': COMMON,
+    'SSRM': COMMON,
+    'COIL': COMMON,
+    'FILM': COMMON,
+    'MH': ['Warehouse Supervisor','Sr.Warehouse Officer','Warehouse Officer','Sr.Forklift Driver','Technical Service Forklift','Forklift Driver']
+  };
+
+  function populateDept(){ deptSelect.innerHTML = DEPTS.map(d=>`<option>${d}</option>`).join(''); }
+  function populatePos(){ const list = POSITIONS_MAP[deptSelect.value]||[]; posSelect.innerHTML = list.map(p=>`<option>${p}</option>`).join(''); }
+  function openAdd(){ addError.classList.add('hidden'); nameInput.value=''; populateDept(); populatePos(); addModal.classList.remove('hidden'); addModal.classList.add('flex'); nameInput.focus(); }
+  function closeAdd(){ addModal.classList.add('hidden'); addModal.classList.remove('flex'); }
+
+  deptSelect.addEventListener('change', populatePos);
+  openAddBtn.addEventListener('click', openAdd);
+  addCancel.addEventListener('click', closeAdd);
+  addModal.addEventListener('click', (e)=>{ if(e.target===addModal) closeAdd(); });
+
+  addForm.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const dept = String(deptSelect.value||'').trim();
+    const position = String(posSelect.value||'').trim();
+    const name = String(nameInput.value||'').trim();
+    if(!dept || !position || !name){ addError.textContent='กรุณากรอกข้อมูลให้ครบ'; addError.classList.remove('hidden'); return; }
+    if(position==='Senior Warehouse Manager'){
+      const hasHead = roster.some(r=> /Senior Warehouse Manager/i.test(r.position));
+      if(hasHead){ addError.textContent='มี Senior Warehouse Manager อยู่แล้ว'; addError.classList.remove('hidden'); return; }
+    }
+    roster.push({id: nextId++, position, dept, name});
+    closeAdd();
+    render();
+    requestAnimationFrame(()=>{ fitToScreen(); });
+  });
+
+  // ====== Edit / Move / Resign Modal Handlers ======
+  const editModal = document.getElementById('editModal');
+  const editForm  = document.getElementById('editForm');
+  const editDeptSelect = document.getElementById('editDeptSelect');
+  const editPosSelect  = document.getElementById('editPosSelect');
+  const editNameInput  = document.getElementById('editNameInput');
+  const editError      = document.getElementById('editError');
+  const editCancel     = document.getElementById('editCancel');
+  const editDelete     = document.getElementById('editDelete');
+  let editingId = null;
+
+  function populateDeptEdit(){ editDeptSelect.innerHTML = DEPTS.map(d=>`<option>${d}</option>`).join(''); }
+  function populatePosEdit(){ const list = POSITIONS_MAP[editDeptSelect.value]||[]; editPosSelect.innerHTML = list.map(p=>`<option>${p}</option>`).join(''); }
+  function openEditByNode(d){
+    const rid = d.data && d.data.id; if(!rid) return; const rec = roster.find(r=> r.id===rid); if(!rec) return;
+    editingId = rid; editError.classList.add('hidden');
+    populateDeptEdit(); editDeptSelect.value = rec.dept; populatePosEdit(); editPosSelect.value = rec.position; editNameInput.value = rec.name;
+    editModal.classList.remove('hidden'); editModal.classList.add('flex'); editNameInput.focus();
+  }
+  function closeEdit(){ editModal.classList.add('hidden'); editModal.classList.remove('flex'); editingId=null; }
+  editDeptSelect.addEventListener('change', populatePosEdit);
+  editCancel.addEventListener('click', closeEdit);
+  editModal.addEventListener('click', (e)=>{ if(e.target===editModal) closeEdit(); });
+  editDelete.addEventListener('click', ()=>{
+    if(editingId==null) return; const rec = roster.find(r=> r.id===editingId); if(!rec) return;
+    if(/Senior Warehouse Manager/i.test(rec.position) || /Asistant Warehouse Manager/i.test(rec.position)){
+      editError.textContent='ไม่สามารถลบตำแหน่งหัวหน้าหลักได้'; editError.classList.remove('hidden'); return;
+    }
+    if(!confirm('ยืนยันการลบ/ลาออกของ '+rec.name+' ?')) return;
+    roster = roster.filter(r=> r.id!==editingId);
+    closeEdit(); render(); requestAnimationFrame(()=>{ fitToScreen(); });
+  });
+  editForm.addEventListener('submit', (e)=>{
+    e.preventDefault(); if(editingId==null) return; const idx = roster.findIndex(r=> r.id===editingId); if(idx<0) return;
+    const dept = String(editDeptSelect.value||'').trim();
+    const position = String(editPosSelect.value||'').trim();
+    const name = String(editNameInput.value||'').trim();
+    if(!dept || !position || !name){ editError.textContent='กรุณากรอกข้อมูลให้ครบ'; editError.classList.remove('hidden'); return; }
+    if(position==='Senior Warehouse Manager'){
+      const exists = roster.some(r=> /Senior Warehouse Manager/i.test(r.position) && r.id!==editingId);
+      if(exists){ editError.textContent='มี Senior Warehouse Manager อยู่แล้ว'; editError.classList.remove('hidden'); return; }
+    }
+    roster[idx] = Object.assign({}, roster[idx], {dept, position, name});
+    closeEdit(); render(); requestAnimationFrame(()=>{ fitToScreen(); });
+  });
+
+  // Render now
+  render();
+  // ค่าเริ่มต้น = ปรับพอดีจอ (เหมือนกดปุ่ม)
+  requestAnimationFrame(()=>{ fitToScreen(); });
+
+  // --------- Test cases (console) ---------
+  function test(name, fn){ try{ fn(); console.log('%c✔ '+name,'color:#22c55e'); } catch(e){ console.error('%c✘ '+name,'color:#ef4444', e);} }
+  test('D3 loaded', ()=>{ if(typeof d3==='undefined') throw 'd3 not loaded'; });
+  test('Header shows Manpower Warehouse', ()=>{ if(!/Manpower Warehouse/i.test(document.title)) throw 'title mismatch'; if(!/Manpower Warehouse/i.test(document.querySelector('h1').textContent)) throw 'h1 mismatch'; });
+  test('Controls hidden by default and togglable', ()=>{ const panel=document.getElementById('controlsPanel'); if(!panel) throw 'no panel'; if(!panel.classList.contains('hidden')) throw 'panel should be hidden'; document.getElementById('controlsToggle').click(); if(panel.classList.contains('hidden')) throw 'panel did not open'; document.getElementById('controlsToggle').click(); if(!panel.classList.contains('hidden')) throw 'panel did not close'; });
+  test('MH chain contains Forklift roles', ()=>{ const mhFork = roster.filter(r=> r.dept==='MH' && (/Forklift/.test(r.position))); if(mhFork.length<5) throw 'MH forklift roles too few'; });
+  test('Shared group: exactly one active carrier among MH Sr.Warehouse Officer', ()=>{
+    const sr = []; (function walk(n){ if(n.data.dept==='MH' && n.data.position==='Sr.Warehouse Officer') sr.push(n); (n.children||[]).forEach(walk); (n._children||[]).forEach(walk); })(treeRoot);
+    if(sr.length<2) throw 'need at least 2 Sr.Warehouse Officer in MH';
+    const carriers = sr.filter(n => (n.children&&n.children.length) || (n._children&&n._children.length));
+    if(carriers.length!==1) throw 'expected exactly one active carrier';
+  });
+  test('Switch shared group moves team to the other MH Sr.Warehouse Officer', ()=>{
+    const sr = []; (function walk(n){ if(n.data.dept==='MH' && n.data.position==='Sr.Warehouse Officer') sr.push(n); (n.children||[]).forEach(walk); (n._children||[]).forEach(walk); })(treeRoot);
+    const a=sr[0], b=sr[1];
+    const activeBefore = (a.children||a._children)? a : (b.children||b._children)? b : null; if(!activeBefore) throw 'no active before';
+    const target = activeBefore===a? b : a;
+    window._switchSharedTo(target);
+    const nowA = (a.children||a._children)? 'has' : 'none';
+    const nowB = (b.children||b._children)? 'has' : 'none';
+    if(!(nowA!==nowB)) throw 'after switch, exactly one should have team';
+  });
+  test('MH Forklift Drivers are children of Sr.Forklift Driver', ()=>{
+    const nodes = []; (function walk(n){ nodes.push(n); (n.children||[]).forEach(walk); (n._children||[]).forEach(walk); }) (treeRoot);
+    const forkliftNodes = nodes.filter(n => n.data && n.data.dept==='MH' && n.data.position==='Forklift Driver');
+    if (forkliftNodes.length === 0) throw 'no MH Forklift Driver nodes';
+    const ok = forkliftNodes.every(n => n.parent && n.parent.data && n.parent.data.position==='Sr.Forklift Driver');
+    if (!ok) throw 'some Forklift Drivers are not under Sr.Forklift Driver';
+  });
+  test('No MH Forklift Driver directly under Warehouse Officer', ()=>{
+    const nodes = []; (function walk(n){ nodes.push(n); (n.children||[]).forEach(walk); (n._children||[]).forEach(walk); }) (treeRoot);
+    const bad = nodes.filter(n => n.data && n.data.dept==='MH' && n.data.position==='Forklift Driver' && n.parent && n.parent.data && n.parent.data.position==='Warehouse Officer');
+    if (bad.length>0) throw 'found Forklift Driver directly under Warehouse Officer';
+  });
+  test('Toggle positions hide/show works', ()=>{ const count = document.querySelectorAll('text.pos-text').length; if (count===0) throw 'no position labels'; window._setShowPositions(false); const hidden = Array.from(document.querySelectorAll('text.pos-text')).every(el=> el.getAttribute('display')==='none'); if(!hidden) throw 'should hide'; window._setShowPositions(true); const shown = Array.from(document.querySelectorAll('text.pos-text')).every(el=> !el.getAttribute('display')); if(!shown) throw 'should show'; });
+  test('Orientation top-down (child lower than parent)', ()=>{ const links = treeRoot.links(); if(links.length===0) throw 'no links'; const ok = links.every(l => l.target.y > l.source.y); if(!ok) throw 'expected child.y > parent.y (top-down)'; });
+  test('Separation grows with label width', ()=>{ const fakeA={parent:null,data:{w:60}}, fakeB={parent:null,data:{w:300}}; const s1=nodeSep(fakeA,fakeA), s2=nodeSep(fakeA,fakeB); if(!(s2>s1)) throw 'separation not increased'; });
+  test('Enter animation applies stroke-dash', ()=>{
+    collapse(treeRoot); update(treeRoot);
+    expand(treeRoot); update(treeRoot);
+    const anyDash = Array.from(document.querySelectorAll('path.link')).some(p=> p.getAttribute('stroke-dasharray'));
+    if(!anyDash) throw 'no stroke-dash on entering links';
+    collapse(treeRoot); if(treeRoot.children) treeRoot.children.forEach(collapse); update(treeRoot);
+  });
+  test('Duration constant exists', ()=>{ if (typeof DURATION==='undefined') throw 'DURATION missing'; });
+})();
+</script>
+</body>
+</html>
