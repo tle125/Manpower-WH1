@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -73,6 +74,12 @@
         <label class="grid gap-1">
           <span class="text-sm text-white/80">ตำแหน่ง</span>
           <select id="editPosSelect" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2"></select>
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm text-white/80">ผู้บังคับบัญชา</span>
+          <select id="editSupervisorSelect" class="bg-[#111a3a] border border-white/15 rounded-lg px-3 py-2">
+            <option value="">ไม่มี (ตามโครงสร้างเดิม)</option>
+          </select>
         </label>
         <label class="grid gap-1">
           <span class="text-sm text-white/80">ชื่อ–นามสกุล</span>
@@ -216,7 +223,7 @@ Operator	FILM	นายกิติภูมิ จีนจันทึก
   // ✅ FIX: แก้ regex แยกบรรทัดให้ถูก และตั้งค่าตัวแปรใช้งานระยะเวลาเป็น DURATION (ไม่ใช้ DU)
   let roster = rows.trim().split(/\r?\n/).map((l,i)=>{
     const [position,dept,name] = l.split('\t');
-    return {id:i+1, position:position.trim(), dept:dept.trim(), name:name.trim()};
+    return {id:i+1, position:position.trim(), dept:dept.trim(), name:name.trim(), supervisor:null};
   });
   let nextId = roster.reduce((m,r)=> Math.max(m, r.id||0), 0) + 1;
   const head = roster.find(r=>/Senior Warehouse Manager/i.test(r.position));
@@ -261,61 +268,120 @@ Operator	FILM	นายกิติภูมิ จีนจันทึก
     const asst = { id: assistant.id, name: assistant.name, position: assistant.position, dept: assistant.dept, children: [] };
     root.children.push(asst);
 
-    const supervisors = roster.filter(r=> r.position==='Warehouse Supervisor');
-    supervisors.forEach(sup=>{
-      const supNode = { id: sup.id, name: sup.name, position: `${sup.position} (${sup.dept})`, dept: sup.dept, children: [] };
-      asst.children.push(supNode);
+    // สร้าง map ของ nodes ทั้งหมดเพื่อใช้ในการค้นหา
+    const nodeMap = new Map();
+    nodeMap.set(head.id, root);
+    nodeMap.set(assistant.id, asst);
 
-      if (sup.dept==='MH'){
-        // MH: Supervisor -> Sr.Warehouse Officer -> Warehouse Officer -> Sr.Forklift Driver -> Forklift Driver
-        const srWHs   = byDeptPos('MH', ['Sr.Warehouse Officer']);
-        const whs     = byDeptPos('MH', ['Warehouse Officer']);
-        const srForks = byDeptPos('MH', ['Sr.Forklift Driver']);
-        const techs   = byDeptPos('MH', ['Technical Service Forklift']);
-        const forks   = byDeptPos('MH', ['Forklift Driver']);
-
-        srWHs.forEach(s => {
-          const sNode = { id:s.id, name: s.name, position: s.position, dept: 'MH', children: [] };
-          supNode.children.push(sNode);
-
-          whs.forEach(w => {
-            const wNode = { id:w.id, name: w.name, position: w.position, dept: 'MH', children: [] };
-            sNode.children.push(wNode);
-
-            const srForkNodes = [];
-            srForks.forEach((sf) => {
-              const sfNode = { id:sf.id, name: sf.name, position: sf.position, dept: 'MH', children: [] };
-              wNode.children.push(sfNode);
-              srForkNodes.push(sfNode);
-            });
-
-            if (srForkNodes.length > 0){
-              forks.forEach((f, i) => {
-                const parent = srForkNodes[i % srForkNodes.length];
-                parent.children.push({ id:f.id, name: f.name, position: f.position, dept: 'MH', children: [] });
-              });
-            } else {
-              forks.forEach((f, i) => {
-                const n = { id:f.id, name: f.name, position: f.position, dept: 'MH', children: [], __assignIndex:i };
-                wNode.children.push(n);
-              });
-            }
-            techs.forEach(t => { wNode.children.push({ id:t.id, name: t.name, position: t.position, dept: 'MH', children: [] }); });
-          });
-        });
-
-        fixMHForkPlacement(supNode);
-      } else {
-        chainThrough([supNode], sup.dept, [
-          ['Sr.Warehouse Officer'],
-          ['Warehouse Officer'],
-          ['Sr.Inspector'],
-          ['Inspector'],
-          ['Operator']
-        ]);
+    // สร้าง nodes สำหรับทุกคนก่อน
+    const allNodes = new Map();
+    roster.forEach(person => {
+      if (person.id !== head.id && person.id !== assistant.id) {
+        const node = { 
+          id: person.id, 
+          name: person.name, 
+          position: person.position, 
+          dept: person.dept, 
+          children: [],
+          _originalPerson: person
+        };
+        allNodes.set(person.id, node);
+        nodeMap.set(person.id, node);
       }
     });
+
+    // จัดเรียงตามผู้บังคับบัญชาที่กำหนด
+    const placed = new Set([head.id, assistant.id]);
+    
+    roster.forEach(person => {
+      if (person.id === head.id || person.id === assistant.id) return;
+      
+      const node = allNodes.get(person.id);
+      if (!node || placed.has(person.id)) return;
+
+      let parentNode = null;
+
+      // ถ้ามีการกำหนดผู้บังคับบัญชาเฉพาะ
+      if (person.supervisor) {
+        parentNode = nodeMap.get(person.supervisor);
+      } else {
+        // ใช้โครงสร้างเดิม
+        if (person.position === 'Warehouse Supervisor') {
+          parentNode = asst;
+          node.position = `${person.position} (${person.dept})`;
+        } else {
+          // หาผู้บังคับบัญชาตามโครงสร้างเดิม
+          parentNode = findDefaultParent(person, nodeMap, placed);
+        }
+      }
+
+      if (parentNode) {
+        parentNode.children.push(node);
+        placed.add(person.id);
+      }
+    });
+
+    // จัดการ MH forklift placement
+    const mhSupervisors = roster.filter(r => r.position === 'Warehouse Supervisor' && r.dept === 'MH');
+    mhSupervisors.forEach(sup => {
+      const supNode = nodeMap.get(sup.id);
+      if (supNode) {
+        fixMHForkPlacement(supNode);
+      }
+    });
+
     return root;
+  }
+
+  function findDefaultParent(person, nodeMap, placed) {
+    const { dept, position } = person;
+    
+    // หา Supervisor ของแผนกนี้
+    const supervisor = roster.find(r => 
+      r.position === 'Warehouse Supervisor' && 
+      r.dept === dept && 
+      placed.has(r.id)
+    );
+    
+    if (!supervisor) return null;
+    
+    const hierarchy = {
+      'MH': [
+        ['Warehouse Supervisor'],
+        ['Sr.Warehouse Officer'],
+        ['Warehouse Officer'],
+        ['Sr.Forklift Driver', 'Technical Service Forklift'],
+        ['Forklift Driver']
+      ],
+      'default': [
+        ['Warehouse Supervisor'],
+        ['Sr.Warehouse Officer'],
+        ['Warehouse Officer'],
+        ['Sr.Inspector'],
+        ['Inspector'],
+        ['Operator']
+      ]
+    };
+
+    const levels = hierarchy[dept] || hierarchy['default'];
+    const currentLevel = levels.findIndex(level => level.includes(position));
+    
+    if (currentLevel <= 0) return nodeMap.get(supervisor.id);
+    
+    // หาผู้บังคับบัญชาในระดับที่สูงกว่า
+    for (let i = currentLevel - 1; i >= 0; i--) {
+      const parentPositions = levels[i];
+      const parent = roster.find(r => 
+        r.dept === dept && 
+        parentPositions.includes(r.position) && 
+        placed.has(r.id)
+      );
+      if (parent) {
+        return nodeMap.get(parent.id);
+      }
+    }
+    
+    return nodeMap.get(supervisor.id);
   }
 
   function chainThrough(parentNodes, dept, levels){
@@ -718,10 +784,36 @@ Operator	FILM	นายกิติภูมิ จีนจันทึก
 
   function populateDeptEdit(){ editDeptSelect.innerHTML = DEPTS.map(d=>`<option>${d}</option>`).join(''); }
   function populatePosEdit(){ const list = POSITIONS_MAP[editDeptSelect.value]||[]; editPosSelect.innerHTML = list.map(p=>`<option>${p}</option>`).join(''); }
+  function populateEditSupervisors(){
+    const supervisorSelect = document.getElementById('editSupervisorSelect');
+    supervisorSelect.innerHTML = '<option value="">ไม่มี (ตามโครงสร้างเดิม)</option>';
+    
+    // เพิ่มรายการผู้บังคับบัญชาที่เป็นไปได้
+    const possibleSupervisors = roster.filter(r => {
+      // ไม่รวมตัวเอง
+      if (editingId && r.id === editingId) return false;
+      // เฉพาะตำแหน่งที่สามารถเป็นผู้บังคับบัญชาได้
+      return ['Senior Warehouse Manager', 'Asistant Warehouse Manager', 'Warehouse Supervisor', 'Sr.Warehouse Officer', 'Warehouse Officer', 'Sr.Forklift Driver', 'Sr.Inspector'].includes(r.position);
+    });
+    
+    possibleSupervisors.forEach(sup => {
+      const option = document.createElement('option');
+      option.value = sup.id;
+      option.textContent = `${sup.name} (${sup.position} - ${sup.dept})`;
+      supervisorSelect.appendChild(option);
+    });
+  }
+  
   function openEditByNode(d){
     const rid = d.data && d.data.id; if(!rid) return; const rec = roster.find(r=> r.id===rid); if(!rec) return;
     editingId = rid; editError.classList.add('hidden');
     populateDeptEdit(); editDeptSelect.value = rec.dept; populatePosEdit(); editPosSelect.value = rec.position; editNameInput.value = rec.name;
+    
+    // อัปเดตรายการผู้บังคับบัญชา
+    populateEditSupervisors();
+    const supervisorSelect = document.getElementById('editSupervisorSelect');
+    supervisorSelect.value = rec.supervisor || '';
+    
     editModal.classList.remove('hidden'); editModal.classList.add('flex'); editNameInput.focus();
   }
   function closeEdit(){ editModal.classList.add('hidden'); editModal.classList.remove('flex'); editingId=null; }
@@ -742,12 +834,14 @@ Operator	FILM	นายกิติภูมิ จีนจันทึก
     const dept = String(editDeptSelect.value||'').trim();
     const position = String(editPosSelect.value||'').trim();
     const name = String(editNameInput.value||'').trim();
+    const supervisorSelect = document.getElementById('editSupervisorSelect');
+    const supervisor = supervisorSelect.value === '' ? null : parseInt(supervisorSelect.value);
     if(!dept || !position || !name){ editError.textContent='กรุณากรอกข้อมูลให้ครบ'; editError.classList.remove('hidden'); return; }
     if(position==='Senior Warehouse Manager'){
       const exists = roster.some(r=> /Senior Warehouse Manager/i.test(r.position) && r.id!==editingId);
       if(exists){ editError.textContent='มี Senior Warehouse Manager อยู่แล้ว'; editError.classList.remove('hidden'); return; }
     }
-    roster[idx] = Object.assign({}, roster[idx], {dept, position, name});
+    roster[idx] = Object.assign({}, roster[idx], {dept, position, name, supervisor});
     closeEdit(); render(); requestAnimationFrame(()=>{ fitToScreen(); });
   });
 
